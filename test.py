@@ -16,9 +16,10 @@ from nltk.stem import WordNetLemmatizer
 # Setup
 @st.cache_resource
 def load_nltk_resources():
-    nltk.download("stopwords", quiet=True)
-    nltk.download("wordnet", quiet=True)
-    nltk.download("punkt", quiet=True)
+    nltk.download('stopwords', quiet=False)
+    nltk.download('wordnet', quiet=False)
+    nltk.download('punkt_tab', quiet=False)
+    nltk.download('punkt', quiet=False)
     return WordNetLemmatizer(), set(stopwords.words("english"))
 
 
