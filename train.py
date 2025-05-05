@@ -27,16 +27,17 @@ warnings.filterwarnings('ignore')
 np.random.seed(42)
 
 # Download required NLTK data
-nltk.download('stopwords', quiet=False)
-nltk.download('wordnet', quiet=False)
-nltk.download('punkt_tab', quiet=False)
-nltk.download('punkt', quiet=False)
+nltk.download('stopwords', quiet=True)
+nltk.download('wordnet', quiet=True)
+nltk.download('punkt', quiet=True)
 
 # Initialize lemmatizer
 lemmatizer = WordNetLemmatizer()
 
 def load_data():
     """Load and combine the fake and real news datasets."""
+    print("Loading data...")
+    
     # Load the datasets
     fake_news = pd.read_csv('Fake.csv')
     true_news = pd.read_csv('True.csv')
@@ -47,13 +48,21 @@ def load_data():
 
     # Combine the datasets
     df = pd.concat([fake_news, true_news], axis=0)
-
-    # Combine title and text
-    df['text'] = df['title'] + ' ' + df['text']
+    
+    # Fill any NaN values
+    df['title'].fillna('', inplace=True)
+    df['text'].fillna('', inplace=True)
+    
+    # Combine title and text with more weight on the title
+    df['text'] = df.apply(lambda x: f"{x['title']} {x['title']} {x['text']}", axis=1)
 
     # Shuffle
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
+    print(f"Total samples: {len(df)}")
+    print(f"Fake news: {len(df[df['label'] == 0])}")
+    print(f"Real news: {len(df[df['label'] == 1])}")
+    
     return df
 
 def preprocess_text(text):
@@ -65,7 +74,7 @@ def preprocess_text(text):
 
         words = nltk.word_tokenize(text)
         stop_words = set(stopwords.words('english'))
-        words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]
+        words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words and len(word) > 2]
 
         return ' '.join(words)
     return ""
@@ -74,21 +83,35 @@ def prepare_data(df):
     """Prepare the data for training and testing."""
     print("Preprocessing text data...")
     df['processed_text'] = df['text'].apply(preprocess_text)
-
+    
+    # Remove empty processed texts
+    df = df[df['processed_text'].str.strip() != '']
+    
     X_train, X_test, y_train, y_test = train_test_split(
-        df['processed_text'], df['label'], test_size=0.2, random_state=42
+        df['processed_text'], df['label'], test_size=0.2, random_state=42, stratify=df['label']
     )
     return X_train, X_test, y_train, y_test
 
 def train_model(X_train, X_test, y_train, y_test):
     """Train and evaluate the model."""
     print("Vectorizing text data...")
-    vectorizer = TfidfVectorizer(max_features=5000)
+    vectorizer = TfidfVectorizer(
+        max_features=20480,
+        ngram_range=(1, 2),
+        min_df=3,
+        max_df=0.9
+    )
     X_train_tfidf = vectorizer.fit_transform(X_train)
     X_test_tfidf = vectorizer.transform(X_test)
 
     print("Training logistic regression model...")
-    model = LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42)
+    model = LogisticRegression(
+        C=1.0,
+        max_iter=1000, 
+        class_weight='balanced', 
+        random_state=42,
+        solver='liblinear'
+    )
     model.fit(X_train_tfidf, y_train)
 
     y_pred = model.predict(X_test_tfidf)
@@ -134,14 +157,15 @@ def save_model(model, vectorizer):
 
 def main():
     """Main function to run the fake news detection pipeline."""
-    print("Loading data...")
+    print("Starting fake news detection model training...")
     df = load_data()
     X_train, X_test, y_train, y_test = prepare_data(df)
 
     model, vectorizer, accuracy = train_model(X_train, X_test, y_train, y_test)
     save_model(model, vectorizer)
 
-    print("\nModel training completed. The model has been saved for use with the Streamlit app.")
+    print(f"\nModel training completed with accuracy: {accuracy:.4f}")
+    print("The model has been saved for use with the Streamlit app.")
 
 if __name__ == "__main__":
     main()
